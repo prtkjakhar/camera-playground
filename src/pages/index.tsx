@@ -1,115 +1,162 @@
-import Image from "next/image";
-import localFont from "next/font/local";
+import React, { useRef, useEffect, useState } from 'react';
+import * as faceapi from 'face-api.js';
+import { Button } from '@/components/ui/button';
+import {removeBackground} from '@imgly/background-removal';
 
-const geistSans = localFont({
-  src: "./fonts/GeistVF.woff",
-  variable: "--font-geist-sans",
-  weight: "100 900",
-});
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
-  weight: "100 900",
-});
+const FaceDetection: React.FC = () => {
+  const videoRef = useRef<any>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [matchingScore, setMatchingScore] = useState<number>(0);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
 
-export default function Home() {
+  useEffect(() => {
+    const loadModels = async () => {
+      const MODEL_URL = '/models';
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+      ]);
+      startVideo();
+    };
+    loadModels();
+  }, []);
+
+  const startVideo = () => {
+    navigator.mediaDevices
+      .getUserMedia({ video: {} })
+      .then((stream) => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      })
+      .catch((err) => console.error(err));
+  };
+
+  const onPlay = async () => {
+    const options = new faceapi.TinyFaceDetectorOptions({
+      inputSize: 128,
+      scoreThreshold: 0.5,
+    });
+    const result = await faceapi
+      .detectSingleFace(videoRef.current, options)
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+    // Clear the canvas before drawing
+    const ctx = canvasRef.current!.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height);
+    }
+    if (result) {
+      // Draw the detection box
+      const dims = faceapi.matchDimensions(
+        canvasRef.current!,
+        videoRef.current,
+        true
+      );
+      const resizedResult = faceapi.resizeResults(result, dims);
+      faceapi.draw.drawDetections(canvasRef.current!, resizedResult);
+
+      const confidenceScore = result.detection.score; // Extract confidence score
+      setMatchingScore(confidenceScore);
+    }
+    setTimeout(onPlay, 50);
+  };
+
+  const captureImage = async () => {
+    const canvas = canvasRef.current;
+    if (canvas && videoRef.current) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+        // Capture image data from canvas
+        const imageData = canvas.toDataURL('image/jpeg');
+
+        setLoading(true);
+        setImageUrl(null);
+        try {
+          const blob = await removeBackground(imageData);
+          const url = URL.createObjectURL(blob);
+          setImageUrl(url);
+        } catch (error) {
+          console.error("Error removing background:", error);
+        } finally {
+          setLoading(false);
+        }
+      }
+    }
+  };
+
+  useEffect(() => {
+    console.log(imageUrl)
+  }, [imageUrl])
+  
+
   return (
     <div
-      className={`${geistSans.variable} ${geistMono.variable} grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]`}
-    >
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/pages/index.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      style={{
+        position: 'relative',
+        height: '100dvh',
+        width: '100dvw',
+        margin: 'auto',
+        textAlign: 'center',
+      }}>
+      <video
+        ref={videoRef}
+        onPlay={onPlay}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          maxWidth: '100dvw'
+        }}
+        width="640"
+        height="480"
+        autoPlay
+        muted
+        playsInline
+      />
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          maxWidth: '100dvw'
+        }}
+        width="640"
+        height="480"
+      />
+      <div
+        style={{
+          position: 'absolute',
+          top: '500px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+        }}>
+        <Button onClick={captureImage} disabled={matchingScore < 0.75 || loading}>
+          Capture Photo
+        </Button>
+      </div>
+      {loading && (
+        <div style={{ position: 'absolute', top: '550px', left: '50%', transform: 'translateX(-50%)' }}>
+          <h3>Removing background...</h3>
+          <div className="loader"></div> 
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
+        {imageUrl && (
+        <div style={{ position: 'absolute', top: '650px', left: '50%', width: '100%', transform: 'translateX(-50%)'}}>
+          <h3>Processed Image</h3>
+          <img src={imageUrl} alt="Background Removed" style={{ width: '100%', height: '100%' }} />
+        </div>
+      )}
     </div>
   );
-}
+};
+
+export default FaceDetection;
