@@ -78,7 +78,7 @@ const FaceDetection: React.FC = () => {
         setLoading(true);
         setImageUrl(null);
         try {
-          const blob = await removeBackground(imageData);
+          const blob = await removeBackground(imageData, {model: 'isnet_fp16', device: 'gpu'});
           const url = URL.createObjectURL(blob);
           setImageUrl(url);
         } catch (error) {
